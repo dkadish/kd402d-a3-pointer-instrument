@@ -26,11 +26,25 @@ import { createShape } from "./shape.js";
 // ---------- Settings ----------
 // Settings variables should contain all of the "fixed" parts of your programs
 // For example: which notes you can play, how fast things move, the tempo.
-const note = "C4"; // the note played when the pointer goes down
+const initialSize = 100;
+const notes = ["C4", "D4", "E4", "F4", "G4", "A4", "B4"];
+const keys = ["a", "s", "d", "f", "g", "h", "j"];
+const instruments = {
+  metal: new Tone.MetalSynth().toDestination(),
+  membrane: new Tone.MembraneSynth().toDestination(),
+  plucky: new Tone.PluckSynth().toDestination(),
+  fm: new Tone.FMSynth().toDestination(),
+  duo: new Tone.DuoSynth().toDestination(),
+};
+const disabledSaturation = 25; // saturation for disabled shapes
+const disabledLightness = 25; // lightness for disabled shapes
 
 // ---------- State ----------
 // State variables are the parts of your program that change over time.
 // For example: where the pointer is, how fast it's moving, or whether a drone is on.
+let shapes = [];
+let shapeInFocus = null;
+let shapeInConfig = null;
 
 // ---------- Sound ----------
 // Make the instruments and plug them into the speakers.
@@ -45,16 +59,84 @@ function update() {
 // ---------- Use ----------
 // Use the state to make sound and move shapes. This is called every 100ms.
 function use() {
-  setTimeout(use, 100); // call use() again in 100 milliseconds
+  for (let s of shapes) {
+    if (s.enabled) {
+      // play all the notes in the shape's notes array
+      s.setColour(s.hue, 100, 50); // bright colour when enabled
+    } else {
+      s.setColour(s.hue, disabledSaturation, disabledLightness); // dim colour when disabled
+    }
+  }
+
+  window.requestAnimationFrame(use); // call use() again on the next frame
 }
 
 // ---------- Controls (Event Handlers) ----------
-// Runs every time the pointer goes down: a click, a tap or a pen touch.
-function pointerDown(event) {
+
+function shapeOver(event, shape) {
+  shapeInFocus = shape;
+  console.log(`Pointer over ${shape.hue}.`);
+}
+
+function shapeOut(event, shape) {
+  shapeInFocus = null;
+  console.log(`Pointer out ${shape.hue}.`);
+}
+
+function setShapeEventListeners(s) {
+  s.element.addEventListener("pointerover", (event) => {
+    shapeOver(event, s);
+  });
+  s.element.addEventListener("pointerout", (event) => {
+    shapeOut(event, s);
+  });
+}
+
+function newShape(event) {
   Tone.start(); // browsers only allow sound after the player has pressed something
 
-  console.log("Pointer down at", event.clientX, event.clientY);
-  synth.triggerAttackRelease(note, "8n"); // play the note for an eighth note
+  let s = createShape();
+  s.setSize(initialSize);
+  s.setPositionPixels(
+    event.clientX - initialSize / 2,
+    event.clientY - initialSize / 2,
+  );
+  s.setColour(Math.random() * 360); // random colour
+
+  // Add properties to the shape for our instrument
+  s.notes = [];
+  s.enabled = false;
+  s.instrument = instruments.fm;
+
+  // Set up event handlers
+  setShapeEventListeners(s);
+
+  shapes.push(s);
+  shapeInFocus = s;
+}
+
+function pointerDown(event) {
+  if (shapeInFocus) {
+    shapeInConfig = shapeInFocus;
+  } else {
+    newShape(event);
+  }
+}
+
+function pointerUp(event) {
+  if (shapeInConfig) {
+    shapeInConfig = null;
+  }
+}
+
+function keyDown(event) {
+  if (shapeInConfig != null && event.repeat == false) {
+    let index = keys.indexOf(event.key);
+    if (index >= 0 && index < notes.length) {
+      let note = notes[index];
+      shapeInConfig.notes.push(note);
+    }
+  }
 }
 
 // ---------- Setup ----------
@@ -63,12 +145,11 @@ function setup() {
   update(); // start the update loop
   use(); // start the use loop
 
-  // Example: a shape near the middle of the window. Replace it with your own.
-  const example = createShape("example");
-  example.setPosition(0.5, 0.5);
-
   // Put your event listener code here
   window.addEventListener("pointerdown", pointerDown);
+  window.addEventListener("pointerup", pointerUp);
+
+  window.addEventListener("keydown", keyDown);
 }
 
 setup(); // Always remember to call setup()!
