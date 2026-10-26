@@ -66,7 +66,11 @@ function useSound() {
       let i = 0; // index of the shape in the shapes array
       // play all the notes in the shape's notes array
       for (let note of s.notes) {
-        s.instrument.triggerAttackRelease(note, "8n", t + i * 0.25); // play the notes for 1/8th of a second
+        let volume = s.size / 200; // volume is proportional to the shape's size
+        if (volume > 1) {
+          volume = 1; // cap the volume at 1
+        }
+        s.instrument.triggerAttackRelease(note, "8n", t + i * 0.25, volume); // play the notes for 1/8th of a second
         i++;
       }
     }
