@@ -30,10 +30,17 @@ const initialSize = 100;
 const notes = ["C4", "D4", "E4", "F4", "G4", "A4", "B4"];
 const keys = ["a", "s", "d", "f", "g", "h", "j"];
 const instruments = {
-  membrane: new Tone.MembraneSynth().toDestination(),
-  plucky: new Tone.PluckSynth().toDestination(),
-  fm: new Tone.FMSynth().toDestination(),
-  duo: new Tone.DuoSynth().toDestination(),
+  membrane: new Tone.PolySynth(Tone.MembraneSynth).toDestination(),
+  plucky: new Tone.PolySynth(Tone.Synth, {
+    envelope: {
+      attack: 0.005,
+      decay: 0.3,
+      sustain: 0,
+      release: 0.3,
+    },
+  }).toDestination(),
+  fm: new Tone.PolySynth(Tone.FMSynth).toDestination(),
+  duo: new Tone.PolySynth(Tone.DuoSynth).toDestination(),
 };
 const disabledSaturation = 25; // saturation for disabled shapes
 const disabledLightness = 25; // lightness for disabled shapes
@@ -159,18 +166,22 @@ function pointerUp(event) {
       shapeInConfig.position.y < window.innerHeight / 2
     ) {
       shapeInConfig.instrument = instruments.fm;
+      shapeInConfig.hue = 60 + 90 * 0 + Math.random() * 25; // random colour
     } else if (
       shapeInConfig.position.x >= window.innerWidth / 2 &&
       shapeInConfig.position.y < window.innerHeight / 2
     ) {
       shapeInConfig.instrument = instruments.membrane;
+      shapeInConfig.hue = 60 + 90 * 1 + Math.random() * 25; // random colour
     } else if (
       shapeInConfig.position.x < window.innerWidth / 2 &&
       shapeInConfig.position.y >= window.innerHeight / 2
     ) {
       shapeInConfig.instrument = instruments.plucky;
+      shapeInConfig.hue = 60 + 90 * 2 + Math.random() * 25; // random colour
     } else {
       shapeInConfig.instrument = instruments.duo;
+      shapeInConfig.hue = 60 + 90 * 3 + Math.random() * 25; // random colour
     }
 
     shapeInConfig = null;
