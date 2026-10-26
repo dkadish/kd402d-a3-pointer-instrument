@@ -91,10 +91,7 @@ function use() {
     s.setSize(s.size); // set the shape's size
 
     // Use the shape's position to move it on the screen. The shape's position is updated in pointerMove().
-    s.setPositionPixels(
-      s.position.x - (s.size - initialSize) / 2,
-      s.position.y - (s.size - initialSize) / 2,
-    ); // move the shape to its position
+    s.setPositionPixels(s.position.x - s.size / 2, s.position.y - s.size / 2); // move the shape to its position
   }
 
   window.requestAnimationFrame(use); // call use() again on the next frame
@@ -127,10 +124,7 @@ function newShape(event) {
   let s = createShape();
   s.size = initialSize;
   s.setSize(s.size);
-  s.position = {
-    x: event.clientX - initialSize / 2,
-    y: event.clientY - initialSize / 2,
-  };
+  s.position = { x: event.clientX, y: event.clientY };
   s.setColour(Math.random() * 360); // random colour
 
   // Add properties to the shape for our instrument
@@ -191,17 +185,16 @@ function pointerMove(event) {
     if (event.shiftKey) {
       shapeInConfig.size = Math.max(
         10,
-        Math.abs(
-          event.clientX - shapeInConfig.position.x + shapeInConfig.size / 2,
-        ),
-        Math.abs(
-          event.clientY - shapeInConfig.position.y + shapeInConfig.size / 2,
-        ),
+        2 *
+          Math.max(
+            Math.abs(event.clientX - shapeInConfig.position.x),
+            Math.abs(event.clientY - shapeInConfig.position.y),
+          ),
       );
     } else {
       shapeInConfig.position = {
-        x: event.clientX - shapeInConfig.size / 2,
-        y: event.clientY - shapeInConfig.size / 2,
+        x: event.clientX,
+        y: event.clientY,
       };
     }
   }
