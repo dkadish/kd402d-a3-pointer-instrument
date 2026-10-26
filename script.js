@@ -30,7 +30,6 @@ const initialSize = 100;
 const notes = ["C4", "D4", "E4", "F4", "G4", "A4", "B4"];
 const keys = ["a", "s", "d", "f", "g", "h", "j"];
 const instruments = {
-  metal: new Tone.MetalSynth().toDestination(),
   membrane: new Tone.MembraneSynth().toDestination(),
   plucky: new Tone.PluckSynth().toDestination(),
   fm: new Tone.FMSynth().toDestination(),
@@ -62,39 +61,37 @@ function update() {
 function useSound() {
   for (let s of shapes) {
     if (s.enabled) {
-      let t = Tone.now(); // get the current time in seconds
-      let i = 0; // index of the shape in the shapes array
-      // play all the notes in the shape's notes array
+      let t = Tone.now(); // Schedule this shape's notes starting now.
+      let i = 0; // Space each note slightly after the previous one.
+
       for (let note of s.notes) {
-        let volume = s.size / 200; // volume is proportional to the shape's size
-        if (volume > 1) {
-          volume = 1; // cap the volume at 1
-        }
-        s.instrument.triggerAttackRelease(note, "8n", t + i * 0.25, volume); // play the notes for 1/8th of a second
+        // Make larger shapes louder, but keep velocity at or below 1.
+        let volume = Math.min(s.size / 200, 1);
+        s.instrument.triggerAttackRelease(note, "8n", t + i * 0.25, volume);
         i++;
       }
     }
   }
-  setTimeout(useSound, 1000); // call update() again in 100 milliseconds
+
+  // Repeat once per second. This controls how often enabled shapes play.
+  setTimeout(useSound, 1000);
 }
 
 function use() {
   for (let s of shapes) {
     if (s.enabled) {
-      // play all the notes in the shape's notes array
-      s.setColour(s.hue, 100, 50); // bright colour when enabled
+      s.setColour(s.hue, 100, 50); // Enabled shapes use a bright colour.
     } else {
-      s.setColour(s.hue, disabledSaturation, disabledLightness); // dim colour when disabled
+      s.setColour(s.hue, disabledSaturation, disabledLightness);
     }
 
-    // Use the shape's size to set its size on the screen. The shape's size is updated in pointerMove().
-    s.setSize(s.size); // set the shape's size
+    s.setSize(s.size);
 
-    // Use the shape's position to move it on the screen. The shape's position is updated in pointerMove().
-    s.setPositionPixels(s.position.x - s.size / 2, s.position.y - s.size / 2); // move the shape to its position
+    // position stores the shape's center; setPositionPixels needs its top-left.
+    s.setPositionPixels(s.position.x - s.size / 2, s.position.y - s.size / 2);
   }
 
-  window.requestAnimationFrame(use); // call use() again on the next frame
+  window.requestAnimationFrame(use);
 }
 
 // ---------- Controls (Event Handlers) ----------
@@ -183,6 +180,8 @@ function pointerUp(event) {
 function pointerMove(event) {
   if (shapeInConfig) {
     if (event.shiftKey) {
+      // With Shift held, resize the shape based on the pointer's distance
+      // from its center. The minimum size is 10 pixels.
       shapeInConfig.size = Math.max(
         10,
         2 *
@@ -192,6 +191,7 @@ function pointerMove(event) {
           ),
       );
     } else {
+      // Otherwise, move the shape's center to the pointer.
       shapeInConfig.position = {
         x: event.clientX,
         y: event.clientY,
