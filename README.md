@@ -30,6 +30,59 @@ registers the window event handlers. The handlers pass input to smaller helper
 functions, which update the program's state. The drawing and sound loops then
 use that state.
 
+The program has two halves that never call each other. On the left, events run
+handlers that only **change the state**. On the right, two loops run on their
+own timers, **read the state**, and turn it into pictures and sound. The state
+in the middle is the only thing connecting them.
+
+```mermaid
+flowchart LR
+    subgraph IN["Events"]
+        direction TB
+        pd([pointerdown])
+        pm([pointermove])
+        pu([pointerup])
+        kd([keydown])
+        po(["pointerover / pointerout<br/>on a shape"])
+    end
+
+    subgraph HANDLERS["Handlers: change the state"]
+        direction TB
+        pointerDown["pointerDown()<br/>newShape(), toggleShapeEnable()"]
+        pointerMove["pointerMove()<br/>moveShape(), resizeShape()"]
+        pointerUp["pointerUp()"]
+        keyDown["keyDown()<br/>addNoteToShape(), removeNoteFromShape()"]
+        shapeOverOut["shapeOver() / shapeOut()"]
+    end
+
+    STATE[("State<br/>shapes, shapeInFocus,<br/>shapeInConfig, shapeClickTime<br/>and each shape's position, size,<br/>notes, enabled, instrument, hue")]
+
+    subgraph LOOPS["Loops: use the state"]
+        direction TB
+        use["use()<br/>every animation frame"]
+        useSound["useSound()<br/>every second"]
+    end
+
+    screen[[Screen]]
+    speakers[[Speakers]]
+
+    pd --> pointerDown
+    pm --> pointerMove
+    pu --> pointerUp
+    kd --> keyDown
+    po --> shapeOverOut
+    pointerDown & pointerMove & pointerUp & keyDown & shapeOverOut -->|write| STATE
+    STATE -->|read| use & useSound
+    use --> screen
+    useSound --> speakers
+    keyDown -.->|note preview| speakers
+```
+
+> **Interactive version:** the [code flow explorer](https://dkadish.github.io/kd402d-a3-pointer-instrument/docs/code-flow.html) shows every
+> function and variable in one diagram. Its step-by-step walkthroughs show the
+> state changing as you go. You can also open the file locally:
+> [`docs/code-flow.html`](docs/code-flow.html).
+
 ### Focus and configuration
 
 The program tracks two different shape states:
@@ -51,6 +104,27 @@ Pointer-out clears focus independently; it does not itself end configuration.
 This is why the pointer can move a configured shape even if it is no longer
 the currently focused shape.
 
+```mermaid
+stateDiagram-v2
+    direction LR
+    Idle: Nothing under the pointer<br/>shapeInFocus = null<br/>shapeInConfig = null
+    Focused: Hovering over a shape<br/>shapeInFocus = shape<br/>shapeInConfig = null
+    Configuring: Holding a shape<br/>shapeInFocus = shape<br/>shapeInConfig = shape
+    Outside: Holding, pointer left the shape<br/>shapeInFocus = null<br/>shapeInConfig = shape
+
+    [*] --> Idle
+    Idle --> Focused: pointerover, or press empty space
+    Focused --> Idle: pointerout
+    Focused --> Configuring: pointerdown
+    Configuring --> Focused: pointerup
+    Configuring --> Outside: pointerout
+    Outside --> Configuring: pointerover
+    Outside --> Idle: pointerup
+```
+
+The *Outside* state happens when you shrink a shape with Shift until the
+pointer is no longer over it. ([Walkthrough](https://dkadish.github.io/kd402d-a3-pointer-instrument/docs/code-flow.html#resize-4))
+
 ### Adding notes
 
 1. `setup()` registers `keyDown()` for the window's `keydown` event.
@@ -62,6 +136,33 @@ the currently focused shape.
 4. The helper also plays the note immediately with `synth` as an audible
    preview. Later, `useSound()` plays stored notes through that shape's
    selected instrument when the shape is enabled.
+
+```mermaid
+sequenceDiagram
+    actor P as Player
+    participant W as window
+    participant KD as keyDown()
+    participant Add as addNoteToShape()
+    participant Rem as removeNoteFromShape()
+    participant N as shapeInConfig.notes
+    participant US as useSound()
+    participant Spk as Speakers
+
+    P->>W: presses D while holding a shape
+    W->>KD: keydown event
+    KD->>Add: addNoteToShape(event)
+    Note over Add: keys.indexOf("d") is 2<br/>notes[2] is "E4"
+    Add->>N: push("E4")
+    Add->>Spk: synth plays E4 as a preview
+    KD->>Rem: removeNoteFromShape(event)
+    Note over Rem: Not Backspace,<br/>so nothing happens
+    loop every second, if the shape is enabled
+        US->>N: read the notes
+        US->>Spk: the shape's instrument plays each note
+    end
+```
+
+([Walkthrough](https://dkadish.github.io/kd402d-a3-pointer-instrument/docs/code-flow.html#notes))
 
 ### Removing notes
 
@@ -84,7 +185,36 @@ the currently focused shape.
 3. `use()` shows enabled shapes with a bright colour. `useSound()` plays their
    stored notes; disabled shapes are dimmed and are skipped by the sound loop.
 
+This is every path through `pointerDown()`:
+
+```mermaid
+flowchart LR
+    A([pointerdown]) --> B{"Is shapeInFocus set?"}
+    B -- no --> C["newShape(event)<br/>make a shape and focus it"]
+    B -- yes --> D{"Less than 200 ms<br/>since shapeClickTime?"}
+    D -- yes --> E["toggleShapeEnable(shapeInFocus)<br/>enabled = !enabled"]
+    D -- no --> F
+    E --> F["shapeInConfig = shapeInFocus<br/>shapeClickTime = Date.now()"]
+```
+
+([Walkthrough](https://dkadish.github.io/kd402d-a3-pointer-instrument/docs/code-flow.html#toggle))
+
 ### Moving shapes
+
+Moving and resizing both start from `pointerMove()`. Neither one draws
+anything: it changes the state, and `use()` draws the result on the next frame.
+
+```mermaid
+flowchart LR
+    A([pointermove]) --> B{"Is shapeInConfig set?"}
+    B -- no --> X[Nothing happens]
+    B -- yes --> C{Shift held?}
+    C -- no --> M["moveShape()<br/>position = pointer"]
+    C -- yes --> R["resizeShape()<br/>size = 2 × distance from center<br/>at least 10"]
+    M & R --> S[("shape's position and size")]
+    S -. next animation frame .-> U["use()<br/>setSize() and setPositionPixels()"]
+```
+
 
 1. Pressing a focused shape triggers `pointerDown()`, which stores it in
    `shapeInConfig`.
@@ -95,6 +225,8 @@ the currently focused shape.
 4. The animation loop calls `use()`, which converts that center to the
    top-left coordinates required by `setPositionPixels()` and redraws the
    shape.
+
+([Walkthrough](https://dkadish.github.io/kd402d-a3-pointer-instrument/docs/code-flow.html#move))
 
 ### Resizing shapes
 
@@ -108,9 +240,11 @@ the currently focused shape.
 4. The next animation frame calls `use()`, which applies the new size and
    adjusts the drawn position around the stored center.
 
+([Walkthrough](https://dkadish.github.io/kd402d-a3-pointer-instrument/docs/code-flow.html#resize))
+
 Releasing the pointer triggers `pointerUp()`. It selects the instrument and
 colour from the shape's screen quadrant, then clears `shapeInConfig` to end
-configuration.
+configuration. ([Walkthrough](https://dkadish.github.io/kd402d-a3-pointer-instrument/docs/code-flow.html#release))
 
 ## API reference
 

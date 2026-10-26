@@ -1,0 +1,1613 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Instrument Code Flow</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        --bg: #f7f7f5;
+        --surface: #ffffff;
+        --surface-2: #f0f0ec;
+        --text: #1d1d1b;
+        --muted: #6a6a64;
+        --border: #d6d6cf;
+        --calls: #2f6fd6;
+        --writes: #d2691e;
+        --reads: #13896f;
+        --out: #8a4fd1;
+        --triggers: #7a7a72;
+        --active-fill: #fff6d6;
+        --active-stroke: #1d1d1b;
+        --changed: #ffe08a;
+        --code-bg: #f3f3ef;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --bg: #161615;
+          --surface: #20201e;
+          --surface-2: #2a2a27;
+          --text: #ecece6;
+          --muted: #a2a299;
+          --border: #42423d;
+          --calls: #6fa1ff;
+          --writes: #f0974f;
+          --reads: #3fcfa8;
+          --out: #b98bff;
+          --triggers: #a2a299;
+          --active-fill: #3d3720;
+          --active-stroke: #ecece6;
+          --changed: #6b5513;
+          --code-bg: #1a1a18;
+        }
+      }
+      :root[data-theme="dark"] {
+        --bg: #161615;
+        --surface: #20201e;
+        --surface-2: #2a2a27;
+        --text: #ecece6;
+        --muted: #a2a299;
+        --border: #42423d;
+        --calls: #6fa1ff;
+        --writes: #f0974f;
+        --reads: #3fcfa8;
+        --out: #b98bff;
+        --triggers: #a2a299;
+        --active-fill: #3d3720;
+        --active-stroke: #ecece6;
+        --changed: #6b5513;
+        --code-bg: #1a1a18;
+      }
+
+      *,
+      ::before,
+      ::after {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, sans-serif;
+        line-height: 1.5;
+      }
+      code,
+      pre {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      code {
+        font-size: 0.92em;
+        background: var(--surface-2);
+        padding: 0.05em 0.3em;
+        border-radius: 4px;
+      }
+      a {
+        color: var(--calls);
+      }
+      .wrap {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: 24px 16px 48px;
+      }
+      header h1 {
+        margin: 0 0 4px;
+        font-size: 1.6rem;
+      }
+      header p {
+        margin: 4px 0;
+        max-width: 75ch;
+        color: var(--muted);
+      }
+      .big-idea {
+        margin: 16px 0;
+        padding: 12px 16px;
+        border-left: 4px solid var(--writes);
+        background: var(--surface);
+        border-radius: 0 8px 8px 0;
+        max-width: 90ch;
+      }
+      .big-idea strong {
+        color: var(--text);
+      }
+
+      /* Scenario picker */
+      .picker {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 20px 0 12px;
+        align-items: center;
+      }
+      .picker .label {
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-right: 4px;
+      }
+      .chip {
+        font: inherit;
+        font-size: 0.9rem;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+        padding: 6px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .chip:hover {
+        border-color: var(--text);
+      }
+      .chip[aria-pressed="true"] {
+        background: var(--text);
+        color: var(--bg);
+        border-color: var(--text);
+      }
+      .chip.explore {
+        border-style: dashed;
+      }
+
+      /* Diagram */
+      .diagram {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow-x: auto;
+      }
+      .diagram svg {
+        display: block;
+        width: 100%;
+        min-width: 900px;
+        height: auto;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 18px;
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin: 8px 2px 0;
+      }
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .legend svg {
+        width: 34px;
+        height: 10px;
+      }
+
+      .col-title {
+        font: 600 12px system-ui, sans-serif;
+        fill: var(--muted);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .group-rect {
+        fill: var(--surface-2);
+        stroke: var(--border);
+      }
+      .group-title {
+        font: 600 11px system-ui, sans-serif;
+        fill: var(--muted);
+      }
+      .node {
+        cursor: pointer;
+        transition: opacity 0.2s;
+      }
+      .node rect {
+        fill: var(--surface);
+        stroke: var(--border);
+        stroke-width: 1.2;
+        transition:
+          fill 0.2s,
+          stroke 0.2s;
+      }
+      .node text {
+        font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        fill: var(--text);
+        pointer-events: none;
+      }
+      .node.kind-event rect,
+      .node.kind-timer rect {
+        stroke-dasharray: 4 3;
+      }
+      .node.kind-event text,
+      .node.kind-timer text,
+      .node.kind-output text {
+        font-family: system-ui, sans-serif;
+      }
+      .node.kind-start rect {
+        stroke-width: 2;
+      }
+      .node.kind-output rect {
+        stroke: var(--out);
+        stroke-width: 1.6;
+      }
+      .node.kind-state text,
+      .node.kind-setting text,
+      .node.kind-shapehead text {
+        font-size: 12px;
+      }
+      .node.kind-helper text.small {
+        font-size: 12px;
+      }
+      .node .value {
+        fill: var(--muted);
+        font-size: 11.5px;
+      }
+      .node.kind-shapehead rect {
+        fill: var(--surface-2);
+        stroke-dasharray: 3 2;
+      }
+      .node:hover rect {
+        stroke: var(--text);
+      }
+      .node.is-active rect {
+        fill: var(--active-fill);
+        stroke: var(--active-stroke);
+        stroke-width: 2.2;
+      }
+      .node.is-changed rect {
+        fill: var(--changed);
+      }
+      .node.is-changed .value {
+        fill: var(--text);
+        font-weight: 700;
+      }
+      svg.has-focus .node:not(.is-active):not(.is-neighbour) {
+        opacity: 0.32;
+      }
+      svg.has-focus .group-rect,
+      svg.has-focus .group-title,
+      svg.has-focus .col-title {
+        opacity: 0.6;
+      }
+
+      .edge {
+        fill: none;
+        stroke-width: 1.4;
+      }
+      #edges-base .edge {
+        opacity: 0.22;
+      }
+      svg.has-focus #edges-base .edge {
+        opacity: 0.06;
+      }
+      #edges-active .edge {
+        stroke-width: 2.6;
+      }
+      #edges-active .halo {
+        fill: none;
+        stroke: var(--surface);
+        stroke-width: 7;
+        opacity: 0.85;
+      }
+      .edge.k-calls {
+        stroke: var(--calls);
+      }
+      .edge.k-writes {
+        stroke: var(--writes);
+      }
+      .edge.k-reads {
+        stroke: var(--reads);
+        stroke-dasharray: 6 4;
+      }
+      .edge.k-out {
+        stroke: var(--out);
+      }
+      .edge.k-triggers {
+        stroke: var(--triggers);
+      }
+      #edges-active .edge.k-reads {
+        animation: flow 0.9s linear infinite;
+      }
+      @keyframes flow {
+        to {
+          stroke-dashoffset: -20;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #edges-active .edge.k-reads {
+          animation: none;
+        }
+      }
+      .m-calls {
+        fill: var(--calls);
+      }
+      .m-writes {
+        fill: var(--writes);
+      }
+      .m-reads {
+        fill: var(--reads);
+      }
+      .m-out {
+        fill: var(--out);
+      }
+      .m-triggers {
+        fill: var(--triggers);
+      }
+
+      /* Step panel */
+      .panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 16px;
+        margin-top: 16px;
+      }
+      @media (max-width: 820px) {
+        .panel {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px 18px;
+        min-width: 0;
+      }
+      .card h2 {
+        margin: 0 0 2px;
+        font-size: 1.15rem;
+      }
+      .counter {
+        margin: 0 0 10px;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+      .step-text p {
+        margin: 0 0 10px;
+      }
+      .changes {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 8px 0 12px;
+      }
+      .changes span {
+        font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        background: var(--changed);
+        padding: 2px 8px;
+        border-radius: 6px;
+      }
+      .nav {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 14px;
+      }
+      .nav[hidden] {
+        display: none;
+      }
+      .nav button {
+        font: inherit;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--text);
+        padding: 6px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .nav button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .nav button.primary:not(:disabled) {
+        background: var(--text);
+        color: var(--bg);
+        border-color: var(--text);
+      }
+      .nav .hint {
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-left: auto;
+      }
+      .dots {
+        display: flex;
+        gap: 5px;
+      }
+      .dots i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--border);
+      }
+      .dots i.on {
+        background: var(--text);
+      }
+      .code-card h3 {
+        margin: 0 0 8px;
+        font-size: 0.85rem;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      pre {
+        margin: 0 0 12px;
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 12.5px;
+        line-height: 1.55;
+        overflow-x: auto;
+      }
+      pre code {
+        background: none;
+        padding: 0;
+        font-size: inherit;
+      }
+      pre .c {
+        color: var(--muted);
+        font-style: italic;
+      }
+      pre .hl {
+        background: var(--changed);
+        border-radius: 3px;
+      }
+      .conn {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 4px 12px;
+        font-size: 0.9rem;
+        margin: 10px 0 0;
+      }
+      .conn dt {
+        color: var(--muted);
+      }
+      .conn dd {
+        margin: 0;
+      }
+      .conn button {
+        font: 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--text);
+        border-radius: 5px;
+        padding: 0 6px;
+        margin: 0 4px 4px 0;
+        cursor: pointer;
+      }
+      footer {
+        margin-top: 28px;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>How the instrument's code works</h1>
+        <p>
+          A map of every function and variable in <code>script.js</code>. Pick a
+          walkthrough to follow one action step by step, or choose
+          <em>Explore</em> and click any box to see what it connects to.
+        </p>
+        <div class="big-idea">
+          <strong>The big idea:</strong> the program has two halves that never
+          call each other. On the <strong>left</strong>, events (your pointer
+          and keyboard) run handlers that only <em>change the state</em>. On
+          the <strong>right</strong>, two loops keep running on their own: they
+          <em>read the state</em> and turn it into pictures and sound. The state
+          in the middle is the only thing connecting them.
+        </div>
+      </header>
+
+      <nav class="picker" id="picker" aria-label="Walkthroughs">
+        <span class="label">Walkthrough:</span>
+      </nav>
+
+      <div class="diagram">
+        <svg id="diagram" viewBox="0 0 1290 625" role="img" aria-label="Diagram of how events, handlers, helpers, state, loops, and outputs connect">
+          <defs id="defs"></defs>
+          <g id="backdrop"></g>
+          <g id="edges-base"></g>
+          <g id="nodes"></g>
+          <g id="edges-active"></g>
+        </svg>
+      </div>
+      <div class="legend" id="legend"></div>
+
+      <section class="panel">
+        <div class="card step-text" aria-live="polite">
+          <h2 id="step-title"></h2>
+          <p class="counter" id="step-counter"></p>
+          <div id="step-body"></div>
+          <div class="changes" id="step-changes"></div>
+          <div class="nav" id="step-nav">
+            <button id="prev" type="button">← Back</button>
+            <div class="dots" id="dots"></div>
+            <button id="next" type="button" class="primary">Next →</button>
+            <span class="hint">or use ← → keys</span>
+          </div>
+        </div>
+        <div class="card code-card">
+          <div id="code"></div>
+        </div>
+      </section>
+
+      <footer>
+        Code excerpts are copied from <code>script.js</code>. If you change the
+        code, this page won't update by itself. Back to the
+        <a href="https://github.com/dkadish/kd402d-a3-pointer-instrument#readme">README</a>
+        · <a href="../index.html">play the instrument</a>.
+      </footer>
+    </div>
+
+    <script>
+      // ---------- Layout ----------
+      const COLS = [
+        { x: 10, w: 170, title: "1 · Events" },
+        { x: 205, w: 160, title: "2 · Handlers" },
+        { x: 395, w: 272, title: "3 · Helpers" },
+        { x: 700, w: 230, title: "4 · State" },
+        { x: 965, w: 170, title: "5 · Loops" },
+        { x: 1165, w: 115, title: "6 · Output" },
+      ];
+
+      const GROUPS = [
+        { y: 36, h: 156, title: "Global state (let …)" },
+        { y: 202, h: 240, title: "" },
+        { y: 456, h: 124, title: "Settings (const, never change)" },
+      ];
+
+      // kind: start | event | timer | handler | helper | state | shapehead | setting | loop | output
+      const NODES = [
+        { id: "setup", label: "setup()", col: 0, y: 40, kind: "start" },
+        { id: "ev-pdown", label: "pointerdown", col: 0, y: 120, kind: "event" },
+        { id: "ev-pmove", label: "pointermove", col: 0, y: 220, kind: "event" },
+        { id: "ev-pup", label: "pointerup", col: 0, y: 310, kind: "event" },
+        { id: "ev-key", label: "keydown", col: 0, y: 400, kind: "event" },
+        { id: "ev-over", label: "pointerover (shape)", col: 0, y: 490, kind: "event" },
+        { id: "ev-out", label: "pointerout (shape)", col: 0, y: 550, kind: "event" },
+
+        { id: "pointerDown", label: "pointerDown()", col: 1, y: 120, kind: "handler" },
+        { id: "pointerMove", label: "pointerMove()", col: 1, y: 220, kind: "handler" },
+        { id: "pointerUp", label: "pointerUp()", col: 1, y: 310, kind: "handler" },
+        { id: "keyDown", label: "keyDown()", col: 1, y: 400, kind: "handler" },
+        { id: "shapeOver", label: "shapeOver()", col: 1, y: 490, kind: "handler" },
+        { id: "shapeOut", label: "shapeOut()", col: 1, y: 550, kind: "handler" },
+
+        { id: "newShape", label: "newShape()", col: 2, y: 40, kind: "helper" },
+        { id: "setShapeCustomProperties", label: "setShapeCustomProperties()", col: 2, y: 88, h: 34, indent: 16, kind: "helper" },
+        { id: "setShapeEventListeners", label: "setShapeEventListeners()", col: 2, y: 128, h: 34, indent: 16, kind: "helper" },
+        { id: "toggleShapeEnable", label: "toggleShapeEnable()", col: 2, y: 176, kind: "helper" },
+        { id: "moveShape", label: "moveShape()", col: 2, y: 236, kind: "helper" },
+        { id: "resizeShape", label: "resizeShape()", col: 2, y: 286, kind: "helper" },
+        { id: "addNoteToShape", label: "addNoteToShape()", col: 2, y: 380, kind: "helper" },
+        { id: "removeNoteFromShape", label: "removeNoteFromShape()", col: 2, y: 430, kind: "helper" },
+
+        { id: "shapes", label: "shapes", col: 3, y: 60, h: 28, kind: "state" },
+        { id: "shapeInFocus", label: "shapeInFocus", col: 3, y: 92, h: 28, kind: "state" },
+        { id: "shapeInConfig", label: "shapeInConfig", col: 3, y: 124, h: 28, kind: "state" },
+        { id: "shapeClickTime", label: "shapeClickTime", col: 3, y: 156, h: 28, kind: "state" },
+        { id: "shape", label: "each shape", col: 3, y: 210, h: 28, kind: "shapehead" },
+        { id: "s.position", label: ".position", col: 3, y: 246, h: 28, indent: 12, kind: "state" },
+        { id: "s.size", label: ".size", col: 3, y: 278, h: 28, indent: 12, kind: "state" },
+        { id: "s.notes", label: ".notes", col: 3, y: 310, h: 28, indent: 12, kind: "state" },
+        { id: "s.enabled", label: ".enabled", col: 3, y: 342, h: 28, indent: 12, kind: "state" },
+        { id: "s.instrument", label: ".instrument", col: 3, y: 374, h: 28, indent: 12, kind: "state" },
+        { id: "s.hue", label: ".hue", col: 3, y: 406, h: 28, indent: 12, kind: "state" },
+        { id: "keys", label: "keys", col: 3, y: 480, h: 28, kind: "setting", value: "a s d f g h j" },
+        { id: "notes", label: "notes", col: 3, y: 512, h: 28, kind: "setting", value: "C4 D4 … B4" },
+        { id: "instruments", label: "instruments", col: 3, y: 544, h: 28, kind: "setting", value: "fm, duo, …" },
+
+        { id: "raf", label: "requestAnimationFrame", col: 4, y: 200, kind: "timer" },
+        { id: "use", label: "use()", col: 4, y: 270, kind: "loop" },
+        { id: "timer", label: "setTimeout 1 s", col: 4, y: 360, kind: "timer" },
+        { id: "useSound", label: "useSound()", col: 4, y: 430, kind: "loop" },
+
+        { id: "screen", label: "Screen", col: 5, y: 270, kind: "output" },
+        { id: "speakers", label: "Speakers", col: 5, y: 430, kind: "output" },
+      ];
+
+      // from → to. "reads" edges point from the state to the function that reads it.
+      const EDGES = [
+        ["ev-pdown", "pointerDown", "triggers"],
+        ["ev-pmove", "pointerMove", "triggers"],
+        ["ev-pup", "pointerUp", "triggers"],
+        ["ev-key", "keyDown", "triggers"],
+        ["ev-over", "shapeOver", "triggers"],
+        ["ev-out", "shapeOut", "triggers"],
+        ["raf", "use", "triggers"],
+        ["timer", "useSound", "triggers"],
+
+        ["pointerDown", "newShape", "calls"],
+        ["pointerDown", "toggleShapeEnable", "calls"],
+        ["newShape", "setShapeCustomProperties", "calls"],
+        ["newShape", "setShapeEventListeners", "calls"],
+        ["pointerMove", "moveShape", "calls"],
+        ["pointerMove", "resizeShape", "calls"],
+        ["keyDown", "addNoteToShape", "calls"],
+        ["keyDown", "removeNoteFromShape", "calls"],
+
+        ["shapeInFocus", "pointerDown", "reads"],
+        ["shapeClickTime", "pointerDown", "reads"],
+        ["pointerDown", "shapeInConfig", "writes"],
+        ["pointerDown", "shapeClickTime", "writes"],
+        ["newShape", "shapes", "writes"],
+        ["newShape", "shapeInFocus", "writes"],
+        ["setShapeCustomProperties", "shape", "writes"],
+        ["toggleShapeEnable", "s.enabled", "writes"],
+        ["shapeInConfig", "pointerMove", "reads"],
+        ["moveShape", "s.position", "writes"],
+        ["s.position", "resizeShape", "reads"],
+        ["resizeShape", "s.size", "writes"],
+        ["shapeInConfig", "pointerUp", "reads"],
+        ["s.position", "pointerUp", "reads"],
+        ["instruments", "pointerUp", "reads"],
+        ["pointerUp", "s.instrument", "writes"],
+        ["pointerUp", "s.hue", "writes"],
+        ["pointerUp", "shapeInConfig", "writes"],
+        ["shapeInConfig", "addNoteToShape", "reads"],
+        ["keys", "addNoteToShape", "reads"],
+        ["notes", "addNoteToShape", "reads"],
+        ["addNoteToShape", "s.notes", "writes"],
+        ["shapeInConfig", "removeNoteFromShape", "reads"],
+        ["removeNoteFromShape", "s.notes", "writes"],
+        ["shapeOver", "shapeInFocus", "writes"],
+        ["shapeOut", "shapeInFocus", "writes"],
+
+        ["shapes", "use", "reads"],
+        ["s.enabled", "use", "reads"],
+        ["s.hue", "use", "reads"],
+        ["s.size", "use", "reads"],
+        ["s.position", "use", "reads"],
+        ["shapes", "useSound", "reads"],
+        ["s.enabled", "useSound", "reads"],
+        ["s.notes", "useSound", "reads"],
+        ["s.size", "useSound", "reads"],
+        ["s.instrument", "useSound", "reads"],
+
+        ["use", "screen", "out"],
+        ["useSound", "speakers", "out"],
+        ["addNoteToShape", "speakers", "out", "under"],
+      ];
+
+      const KIND_LABEL = {
+        calls: "calls a function",
+        writes: "changes state",
+        reads: "reads state",
+        out: "draws or plays",
+        triggers: "event / timer runs a function",
+      };
+
+      // ---------- Code excerpts (copied from script.js) ----------
+      const CODE = {
+        setup: `function setup() {
+  update(); // start the update loop
+  use(); // start the use loop
+  useSound(); // start the useSound loop
+
+  // Put your event listener code here
+  window.addEventListener("pointerdown", pointerDown);
+  window.addEventListener("pointerup", pointerUp);
+  window.addEventListener("pointermove", pointerMove);
+
+  window.addEventListener("keydown", keyDown);
+}
+
+setup(); // Always remember to call setup()!`,
+        pointerDown: `function pointerDown(event) {
+  if (shapeInFocus) {
+    if (Date.now() - shapeClickTime < 200) {
+      toggleShapeEnable(shapeInFocus);
+    }
+    shapeInConfig = shapeInFocus;
+    shapeClickTime = Date.now();
+  } else {
+    newShape(event);
+  }
+}`,
+        pointerMove: `function pointerMove(event) {
+  if (shapeInConfig) {
+    if (event.shiftKey) {
+      // With Shift held, resize the shape based on the pointer's distance
+      resizeShape(event);
+    } else {
+      // Otherwise, move the shape's center to the pointer.
+      moveShape(event);
+    }
+  }
+}`,
+        pointerUp: `function pointerUp(event) {
+  if (shapeInConfig) {
+    if (
+      shapeInConfig.position.x < window.innerWidth / 2 &&
+      shapeInConfig.position.y < window.innerHeight / 2
+    ) {
+      shapeInConfig.instrument = instruments.fm;
+      shapeInConfig.hue = 60 + 90 * 0 + Math.random() * 25; // random yellow
+    } else if (
+      shapeInConfig.position.x >= window.innerWidth / 2 &&
+      shapeInConfig.position.y < window.innerHeight / 2
+    ) {
+      shapeInConfig.instrument = instruments.membrane;
+      shapeInConfig.hue = 60 + 90 * 1 + Math.random() * 25; // random cyan
+    } else if (
+      shapeInConfig.position.x < window.innerWidth / 2 &&
+      shapeInConfig.position.y >= window.innerHeight / 2
+    ) {
+      shapeInConfig.instrument = instruments.plucky;
+      shapeInConfig.hue = 60 + 90 * 2 + Math.random() * 25; // random blue
+    } else {
+      shapeInConfig.instrument = instruments.duo;
+      shapeInConfig.hue = 60 + 90 * 3 + Math.random() * 25; // random red
+    }
+
+    shapeInConfig = null;
+  }
+}`,
+        keyDown: `function keyDown(event) {
+  addNoteToShape(event);
+
+  removeNoteFromShape(event);
+}`,
+        shapeOver: `function shapeOver(event, shape) {
+  shapeInFocus = shape;
+  console.log(\`Pointer over \${shape.hue}.\`);
+}`,
+        shapeOut: `function shapeOut(event, shape) {
+  shapeInFocus = null;
+  console.log(\`Pointer out \${shape.hue}.\`);
+}`,
+        newShape: `function newShape(event) {
+  Tone.start(); // browsers only allow sound after the player has pressed something
+
+  let s = createShape();
+  setShapeCustomProperties(s, event);
+
+  // Set up event handlers
+  setShapeEventListeners(s);
+
+  shapes.push(s);
+  shapeInFocus = s;
+}`,
+        setShapeCustomProperties: `function setShapeCustomProperties(s, event) {
+  s.size = initialSize;
+  s.setSize(s.size);
+  s.position = { x: event.clientX, y: event.clientY };
+  s.setColour(Math.random() * 360); // random colour
+
+  // Add properties to the shape for our instrument
+  s.notes = [];
+  s.enabled = false;
+  s.instrument = instruments.fm;
+}`,
+        setShapeEventListeners: `function setShapeEventListeners(s) {
+  s.element.addEventListener("pointerover", (event) => {
+    shapeOver(event, s);
+  });
+  s.element.addEventListener("pointerout", (event) => {
+    shapeOut(event, s);
+  });
+}`,
+        toggleShapeEnable: `function toggleShapeEnable(s) {
+  s.enabled = !s.enabled;
+}`,
+        moveShape: `function moveShape(event) {
+  shapeInConfig.position = {
+    x: event.clientX,
+    y: event.clientY,
+  };
+}`,
+        resizeShape: `function resizeShape(event) {
+  shapeInConfig.size = Math.max(
+    10,
+    2 *
+      Math.max(
+        Math.abs(event.clientX - shapeInConfig.position.x),
+        Math.abs(event.clientY - shapeInConfig.position.y),
+      ),
+  );
+}`,
+        addNoteToShape: `function addNoteToShape(event) {
+  if (shapeInConfig != null && event.repeat == false) {
+    let index = keys.indexOf(event.key);
+    if (index >= 0 && index < notes.length) {
+      let note = notes[index];
+      shapeInConfig.notes.push(note);
+
+      synth.triggerAttackRelease(note, "8n");
+    }
+  }
+}`,
+        removeNoteFromShape: `function removeNoteFromShape(event) {
+  if (event.key === "Backspace" && shapeInConfig != null) {
+    shapeInConfig.notes.pop();
+  }
+}`,
+        use: `function use() {
+  for (let s of shapes) {
+    if (s.enabled) {
+      s.setColour(s.hue, 100, 50); // Enabled shapes use a bright colour.
+    } else {
+      s.setColour(s.hue, disabledSaturation, disabledLightness);
+    }
+
+    s.setSize(s.size);
+
+    // position stores the shape's center; setPositionPixels needs its top-left.
+    s.setPositionPixels(s.position.x - s.size / 2, s.position.y - s.size / 2);
+  }
+
+  window.requestAnimationFrame(use);
+}`,
+        useSound: `function useSound() {
+  for (let s of shapes) {
+    if (s.enabled) {
+      let t = Tone.now(); // Schedule this shape's notes starting now.
+      let i = 0; // Space each note slightly after the previous one.
+
+      for (let note of s.notes) {
+        // Make larger shapes louder, but keep velocity at or below 1.
+        let volume = Math.min(s.size / 200, 1);
+        s.instrument.triggerAttackRelease(note, "8n", t + i * 0.25, volume);
+        i++;
+      }
+    }
+  }
+
+  // Repeat once per second. This controls how often enabled shapes play.
+  setTimeout(useSound, 1000);
+}`,
+        state: `let shapes = [];
+let shapeInFocus = null;
+let shapeInConfig = null;
+let shapeClickTime = 0;`,
+        settings: `const notes = ["C4", "D4", "E4", "F4", "G4", "A4", "B4"];
+const keys = ["a", "s", "d", "f", "g", "h", "j"];
+const instruments = {
+  membrane: new Tone.PolySynth(Tone.MembraneSynth).toDestination(),
+  plucky: new Tone.PolySynth(Tone.Synth, { /* ... */ }).toDestination(),
+  fm: new Tone.PolySynth(Tone.FMSynth).toDestination(),
+  duo: new Tone.PolySynth(Tone.DuoSynth).toDestination(),
+};`,
+      };
+
+      // ---------- Descriptions for Explore mode ----------
+      const INFO = {
+        setup: ["Runs once when the page loads. Starts the loops and tells the window which handler to call for each event.", "setup"],
+        "ev-pdown": ["The browser fires this when a mouse button, finger or pen presses down anywhere in the window.", "setup"],
+        "ev-pmove": ["Fired many times per second while the pointer moves, whether or not a button is held.", "setup"],
+        "ev-pup": ["Fired when the pointer is released.", "setup"],
+        "ev-key": ["Fired when a key is pressed. Holding a key fires it again and again with <code>event.repeat</code> set to <code>true</code>.", "setup"],
+        "ev-over": ["Fired on a single shape's element when the pointer enters it. Each shape has its own listener, added by <code>setShapeEventListeners()</code>.", "setShapeEventListeners"],
+        "ev-out": ["Fired on a single shape's element when the pointer leaves it.", "setShapeEventListeners"],
+        pointerDown: ["Decides what a press means: create a shape, start configuring the focused shape, or (on a quick second press) toggle it.", "pointerDown"],
+        pointerMove: ["Only does something while a shape is being configured. Chooses between moving and resizing based on Shift.", "pointerMove"],
+        pointerUp: ["Picks the instrument and colour from the screen quadrant, then ends configuration by clearing <code>shapeInConfig</code>.", "pointerUp"],
+        keyDown: ["A router: hands every key press to both note helpers. Each helper decides if the key matters to it.", "keyDown"],
+        shapeOver: ["Remembers which shape the pointer is over.", "shapeOver"],
+        shapeOut: ["Forgets the focused shape when the pointer leaves it. Note that it does <em>not</em> touch <code>shapeInConfig</code>.", "shapeOut"],
+        newShape: ["Makes a shape with shape.js, gives it our extra properties and listeners, adds it to <code>shapes</code>, and focuses it.", "newShape"],
+        setShapeCustomProperties: ["Adds the properties the instrument needs: size, center position, colour, an empty note list, disabled, and a default instrument.", "setShapeCustomProperties"],
+        setShapeEventListeners: ["Gives the new shape its own <code>pointerover</code> / <code>pointerout</code> listeners, which call <code>shapeOver()</code> and <code>shapeOut()</code>.", "setShapeEventListeners"],
+        toggleShapeEnable: ["Flips <code>enabled</code> between true and false. That's all: the loops notice the change.", "toggleShapeEnable"],
+        moveShape: ["Stores the pointer position as the shape's center. It does not draw anything.", "moveShape"],
+        resizeShape: ["Sets the size to twice the pointer's distance from the center (the larger of x and y), at least 10 px.", "resizeShape"],
+        addNoteToShape: ["Turns a key into a note (via the matching index in <code>keys</code> and <code>notes</code>), stores it, and plays a preview.", "addNoteToShape"],
+        removeNoteFromShape: ["On Backspace, removes the last stored note from the configured shape.", "removeNoteFromShape"],
+        shapes: ["Every shape that exists. The loops go through this list.", "state"],
+        shapeInFocus: ["The shape currently under the pointer, or <code>null</code>.", "state"],
+        shapeInConfig: ["The shape being edited: set on press, cleared on release. Moves, resizes, and note keys act on this shape.", "state"],
+        shapeClickTime: ["When the last press on a shape happened (from <code>Date.now()</code>, in ms). Used to detect a quick double press.", "state"],
+        shape: ["Each shape in <code>shapes</code> is a shape.js object with extra properties added by <code>setShapeCustomProperties()</code>.", "setShapeCustomProperties"],
+        "s.position": ["The shape's <strong>center</strong> in pixels: <code>{ x, y }</code>.", "moveShape"],
+        "s.size": ["Width and height in pixels (shapes stay square).", "resizeShape"],
+        "s.notes": ["The list of notes this shape plays, e.g. <code>[\"E4\", \"G4\"]</code>.", "addNoteToShape"],
+        "s.enabled": ["Whether the shape plays and is drawn brightly.", "toggleShapeEnable"],
+        "s.instrument": ["Which Tone.js instrument from <code>instruments</code> plays this shape's notes.", "pointerUp"],
+        "s.hue": ["The colour (0–360 on the colour wheel), chosen from the quadrant.", "pointerUp"],
+        keys: ["Which keyboard keys add notes. Position in this list matches position in <code>notes</code>.", "settings"],
+        notes: ["The notes the keys add: <code>keys[2]</code> (\"d\") adds <code>notes[2]</code> (\"E4\").", "settings"],
+        instruments: ["The Tone.js instruments a shape can use, chosen by quadrant in <code>pointerUp()</code>.", "settings"],
+        raf: ["The browser calls <code>use()</code> again just before the next screen refresh, about 60 times per second.", "use"],
+        timer: ["<code>setTimeout(useSound, 1000)</code> calls <code>useSound()</code> again after one second.", "useSound"],
+        use: ["The drawing loop. Every frame, copies each shape's state onto its element on screen.", "use"],
+        useSound: ["The sound loop. Every second, plays the notes of each enabled shape.", "useSound"],
+        screen: ["The shape elements on the page, changed through shape.js: <code>setColour()</code>, <code>setSize()</code>, <code>setPositionPixels()</code>.", "use"],
+        speakers: ["Tone.js instruments make the sound: <code>triggerAttackRelease()</code>.", "useSound"],
+      };
+
+      // ---------- Walkthroughs ----------
+      // Each step lists the boxes and arrows to highlight, and the state that changes.
+      // Arrows are written "from>to".
+      const S0 = {
+        shapes: "[ ]",
+        shapeInFocus: "null",
+        shapeInConfig: "null",
+        shapeClickTime: "0",
+        shape: "",
+        "s.position": "",
+        "s.size": "",
+        "s.notes": "",
+        "s.enabled": "",
+        "s.instrument": "",
+        "s.hue": "",
+      };
+      const A = {
+        shapes: "[A]",
+        shape: "A",
+        "s.position": "(420, 260)",
+        "s.size": "100",
+        "s.notes": "[ ]",
+        "s.enabled": "false",
+        "s.instrument": "fm",
+        "s.hue": "212",
+      };
+
+      const SCENARIOS = [
+        {
+          id: "start",
+          title: "Page loads",
+          initial: S0,
+          steps: [
+            {
+              title: "setup() runs once",
+              nodes: ["setup"],
+              text: "<p>When the browser loads <code>script.js</code>, the last line calls <code>setup()</code>. It is the only function the file calls directly. Everything else is started by <code>setup()</code>, by an event, or by a timer.</p>",
+              code: ["setup"],
+            },
+            {
+              title: "It starts the loops",
+              nodes: ["setup", "use", "useSound", "raf", "timer"],
+              edges: ["raf>use", "timer>useSound"],
+              text: "<p><code>setup()</code> calls <code>use()</code> and <code>useSound()</code> once. At the end, each one schedules its own next run. <code>use()</code> asks for the next animation frame, about 1/60 s later. <code>useSound()</code> sets a 1-second timer.</p><p>From now on they repeat forever, even when nothing is happening. (<code>update()</code> is also started; it's an empty loop for you to fill in.)</p>",
+              code: ["setup", "use"],
+              hl: ["window.requestAnimationFrame(use);", "use(); // start the use loop", "useSound(); // start the useSound loop"],
+            },
+            {
+              title: "It connects the events to handlers",
+              nodes: ["setup", "ev-pdown", "ev-pmove", "ev-pup", "ev-key", "pointerDown", "pointerMove", "pointerUp", "keyDown"],
+              edges: ["ev-pdown>pointerDown", "ev-pmove>pointerMove", "ev-pup>pointerUp", "ev-key>keyDown"],
+              text: "<p>Next, <code>addEventListener</code> tells the window which function to call for each kind of event. Notice there are no brackets: <code>pointerDown</code>, not <code>pointerDown()</code>. We pass the function itself so the browser can call it later.</p><p>Now the program waits. Your code runs again only when an event fires or a loop's timer comes round.</p>",
+              code: ["setup"],
+              hl: ['window.addEventListener("pointerdown", pointerDown);', 'window.addEventListener("pointerup", pointerUp);', 'window.addEventListener("pointermove", pointerMove);', 'window.addEventListener("keydown", keyDown);'],
+            },
+          ],
+        },
+        {
+          id: "create",
+          title: "Create a shape",
+          initial: S0,
+          steps: [
+            {
+              title: "Press on an empty spot",
+              nodes: ["ev-pdown", "pointerDown", "shapeInFocus"],
+              edges: ["ev-pdown>pointerDown", "shapeInFocus>pointerDown"],
+              text: "<p>The window fires <code>pointerdown</code>, which calls <code>pointerDown(event)</code>. The first thing it checks is <code>shapeInFocus</code>. The pointer isn't over a shape, so it is <code>null</code>.</p>",
+              code: ["pointerDown"],
+              hl: ["if (shapeInFocus) {", "} else {", "newShape(event);"],
+            },
+            {
+              title: "pointerDown() calls newShape()",
+              nodes: ["pointerDown", "newShape"],
+              edges: ["pointerDown>newShape"],
+              text: "<p><code>newShape()</code> first starts Tone.js, because browsers only allow sound after the player has pressed something. Then it asks shape.js's <code>createShape()</code> for a new <code>&lt;div&gt;</code> on the page.</p>",
+              code: ["newShape"],
+              hl: ["Tone.start();", "let s = createShape();"],
+            },
+            {
+              title: "Give it the instrument's properties",
+              nodes: ["newShape", "setShapeCustomProperties", "shape", "s.position", "s.size", "s.notes", "s.enabled", "s.instrument", "s.hue"],
+              edges: ["newShape>setShapeCustomProperties", "setShapeCustomProperties>shape"],
+              set: { shape: "A", "s.position": "(420, 260)", "s.size": "100", "s.notes": "[ ]", "s.enabled": "false", "s.instrument": "fm", "s.hue": "212" },
+              text: "<p>A shape from shape.js only knows how to draw itself. This helper adds the extra properties our instrument needs. We'll call this shape <strong>A</strong>.</p><p>Notice that <code>position</code> is the pointer's position, so it stores the <strong>center</strong> of the shape, not its corner.</p>",
+              code: ["setShapeCustomProperties"],
+            },
+            {
+              title: "Listen for the pointer entering and leaving it",
+              nodes: ["newShape", "setShapeEventListeners", "ev-over", "ev-out", "shapeOver", "shapeOut"],
+              edges: ["newShape>setShapeEventListeners", "ev-over>shapeOver", "ev-out>shapeOut"],
+              text: "<p>Every shape gets its own <code>pointerover</code> and <code>pointerout</code> listeners. This is how the program will later know <em>which</em> shape is under the pointer.</p><p>The arrow function <code>(event) =&gt; { shapeOver(event, s); }</code> remembers <code>s</code>, so each listener reports its own shape.</p>",
+              code: ["setShapeEventListeners"],
+            },
+            {
+              title: "Add it to the list and focus it",
+              nodes: ["newShape", "shapes", "shapeInFocus"],
+              edges: ["newShape>shapes", "newShape>shapeInFocus"],
+              set: { shapes: "[A]", shapeInFocus: "A" },
+              text: "<p>The shape goes into <code>shapes</code>, so the loops will find it. It also becomes the focused shape.</p><p><code>shapeInConfig</code> is still <code>null</code>, so moving the pointer now won't move it. Press the shape again to start editing it.</p>",
+              code: ["newShape"],
+              hl: ["shapes.push(s);", "shapeInFocus = s;"],
+            },
+            {
+              title: "The drawing loop shows it",
+              nodes: ["raf", "use", "shapes", "s.position", "s.size", "s.hue", "s.enabled", "screen"],
+              edges: ["raf>use", "shapes>use", "s.position>use", "s.size>use", "s.hue>use", "s.enabled>use", "use>screen"],
+              text: "<p>No handler draws anything. Within about 1/60 s, <code>use()</code> runs, goes through every shape in <code>shapes</code>, and copies its state to the screen. A is drawn dim because <code>enabled</code> is <code>false</code>.</p>",
+              code: ["use"],
+            },
+          ],
+        },
+        {
+          id: "move",
+          title: "Move a shape",
+          initial: { ...S0, ...A },
+          steps: [
+            {
+              title: "Hover over the shape",
+              nodes: ["ev-over", "shapeOver", "shapeInFocus"],
+              edges: ["ev-over>shapeOver", "shapeOver>shapeInFocus"],
+              set: { shapeInFocus: "A" },
+              text: "<p>The pointer enters A, so A's own <code>pointerover</code> listener calls <code>shapeOver(event, A)</code>. That stores A in <code>shapeInFocus</code>.</p>",
+              code: ["shapeOver"],
+            },
+            {
+              title: "Press it: start configuring",
+              nodes: ["ev-pdown", "pointerDown", "shapeInFocus", "shapeClickTime", "shapeInConfig"],
+              edges: ["ev-pdown>pointerDown", "shapeInFocus>pointerDown", "shapeClickTime>pointerDown", "pointerDown>shapeInConfig", "pointerDown>shapeClickTime"],
+              set: { shapeInConfig: "A", shapeClickTime: "15000" },
+              text: "<p>This time <code>shapeInFocus</code> is set, so no new shape is made. It's been more than 200 ms since the last press, so the toggle is skipped.</p><p>Then <code>pointerDown()</code> copies the focused shape into <code>shapeInConfig</code> and remembers the time.</p>",
+              code: ["pointerDown"],
+              hl: ["shapeInConfig = shapeInFocus;", "shapeClickTime = Date.now();"],
+            },
+            {
+              title: "Drag: pointerMove() picks moveShape()",
+              nodes: ["ev-pmove", "pointerMove", "shapeInConfig", "moveShape"],
+              edges: ["ev-pmove>pointerMove", "shapeInConfig>pointerMove", "pointerMove>moveShape"],
+              text: "<p><code>pointermove</code> fires many times per second. Each time, <code>pointerMove()</code> checks that a shape is being configured. Shift isn't held, so it calls <code>moveShape()</code>.</p>",
+              code: ["pointerMove"],
+              hl: ["moveShape(event);"],
+            },
+            {
+              title: "moveShape() changes a number",
+              nodes: ["moveShape", "s.position"],
+              edges: ["moveShape>s.position"],
+              set: { "s.position": "(520, 300)" },
+              text: "<p>The pointer's <code>clientX</code>/<code>clientY</code> become A's new center. That's all it does. <strong>The shape on screen hasn't moved yet!</strong></p>",
+              code: ["moveShape"],
+            },
+            {
+              title: "The next frame moves it on screen",
+              nodes: ["raf", "use", "s.position", "s.size", "screen"],
+              edges: ["raf>use", "s.position>use", "s.size>use", "use>screen"],
+              text: "<p><code>use()</code> reads the new center. <code>setPositionPixels()</code> needs the top-left corner, so it subtracts half the size: 520 − 50 = 470, 300 − 50 = 250.</p><p>Releasing the pointer ends the move. See the <em>Release</em> walkthrough.</p>",
+              code: ["use"],
+              hl: ["s.setPositionPixels(s.position.x - s.size / 2, s.position.y - s.size / 2);"],
+            },
+          ],
+        },
+        {
+          id: "resize",
+          title: "Resize (Shift)",
+          initial: { ...S0, ...A, shapeInFocus: "A", shapeInConfig: "A", shapeClickTime: "15000", "s.position": "(520, 300)" },
+          steps: [
+            {
+              title: "Hold Shift and drag",
+              nodes: ["ev-pmove", "pointerMove", "shapeInConfig", "resizeShape"],
+              edges: ["ev-pmove>pointerMove", "shapeInConfig>pointerMove", "pointerMove>resizeShape"],
+              text: "<p>A is already being configured (you're holding it down). This time <code>event.shiftKey</code> is <code>true</code>, so <code>pointerMove()</code> calls <code>resizeShape()</code> instead of <code>moveShape()</code>.</p>",
+              code: ["pointerMove"],
+              hl: ["if (event.shiftKey) {", "resizeShape(event);"],
+            },
+            {
+              title: "resizeShape() measures from the center",
+              nodes: ["resizeShape", "s.position", "s.size"],
+              edges: ["s.position>resizeShape", "resizeShape>s.size"],
+              set: { "s.size": "160" },
+              text: "<p>Say the pointer is at (600, 330) and the center is (520, 300).</p><p>Distance in x = 80, in y = 30. The larger is 80. Doubled, that's the full width: <strong>160</strong>. <code>Math.max(10, …)</code> stops the shape from shrinking below 10 px.</p>",
+              code: ["resizeShape"],
+            },
+            {
+              title: "The next frame redraws it",
+              nodes: ["raf", "use", "s.size", "s.position", "screen"],
+              edges: ["raf>use", "s.size>use", "s.position>use", "use>screen"],
+              text: "<p><code>use()</code> applies the new size. The center hasn't changed, so the shape grows equally in every direction: top-left is now 520 − 80 = 440, 300 − 80 = 220.</p>",
+              code: ["use"],
+              hl: ["s.setSize(s.size);", "s.setPositionPixels(s.position.x - s.size / 2, s.position.y - s.size / 2);"],
+            },
+            {
+              title: "Shrink it until the pointer leaves",
+              nodes: ["ev-out", "shapeOut", "shapeInFocus", "shapeInConfig"],
+              edges: ["ev-out>shapeOut", "shapeOut>shapeInFocus"],
+              set: { shapeInFocus: "null", "s.size": "40" },
+              text: "<p>If you shrink A, the pointer can end up outside it. A's <code>pointerout</code> fires and <code>shapeOut()</code> clears <code>shapeInFocus</code>.</p><p>But <code>shapeInConfig</code> is a <strong>different variable</strong> and is still A, so resizing keeps working until you release. That's why the program needs two variables.</p>",
+              code: ["shapeOut"],
+            },
+          ],
+        },
+        {
+          id: "notes",
+          title: "Add & remove notes",
+          initial: { ...S0, ...A, shapeInFocus: "A", shapeInConfig: "A", shapeClickTime: "15000" },
+          steps: [
+            {
+              title: "Press D while holding the shape",
+              nodes: ["ev-key", "keyDown"],
+              edges: ["ev-key>keyDown"],
+              text: "<p>The window fires <code>keydown</code> and calls <code>keyDown(event)</code>. <code>keyDown()</code> doesn't decide anything itself. It passes the event on to two helpers.</p>",
+              code: ["keyDown"],
+            },
+            {
+              title: "addNoteToShape() looks up the note",
+              nodes: ["keyDown", "addNoteToShape", "shapeInConfig", "keys", "notes"],
+              edges: ["keyDown>addNoteToShape", "shapeInConfig>addNoteToShape", "keys>addNoteToShape", "notes>addNoteToShape"],
+              text: "<p>Two checks: is a shape being configured, and is this a fresh press (not a held-key repeat)?</p><p>Then <code>keys.indexOf(\"d\")</code> gives <strong>2</strong>, and <code>notes[2]</code> is <strong>\"E4\"</strong>. The two arrays line up position by position.</p>",
+              code: ["addNoteToShape"],
+              hl: ["if (shapeInConfig != null && event.repeat == false) {", "let index = keys.indexOf(event.key);", "let note = notes[index];"],
+            },
+            {
+              title: "Store it and play a preview",
+              nodes: ["addNoteToShape", "s.notes", "speakers"],
+              edges: ["addNoteToShape>s.notes", "addNoteToShape>speakers"],
+              set: { "s.notes": "[E4]" },
+              text: "<p>The note is pushed onto A's <code>notes</code>. Then <code>synth</code> plays it straight away so you can hear what you added.</p><p>This preview is the one place a handler makes sound directly. Everything else is played by the sound loop.</p>",
+              code: ["addNoteToShape"],
+              hl: ["shapeInConfig.notes.push(note);", 'synth.triggerAttackRelease(note, "8n");'],
+            },
+            {
+              title: "removeNoteFromShape() gets the same key",
+              nodes: ["keyDown", "removeNoteFromShape"],
+              edges: ["keyDown>removeNoteFromShape"],
+              text: "<p><code>keyDown()</code> also passes the D press to <code>removeNoteFromShape()</code>. D isn't Backspace, so nothing happens.</p><p>Both helpers see <em>every</em> key, and each one decides whether that key matters to it.</p>",
+              code: ["removeNoteFromShape"],
+            },
+            {
+              title: "Press G",
+              nodes: ["ev-key", "keyDown", "addNoteToShape", "keys", "notes", "s.notes", "speakers"],
+              edges: ["ev-key>keyDown", "keyDown>addNoteToShape", "keys>addNoteToShape", "notes>addNoteToShape", "addNoteToShape>s.notes", "addNoteToShape>speakers"],
+              set: { "s.notes": "[E4, G4]" },
+              text: "<p>Same path again: <code>keys.indexOf(\"g\")</code> is 4, and <code>notes[4]</code> is \"G4\".</p>",
+              code: ["addNoteToShape"],
+            },
+            {
+              title: "Press Backspace",
+              nodes: ["ev-key", "keyDown", "removeNoteFromShape", "shapeInConfig", "s.notes"],
+              edges: ["ev-key>keyDown", "keyDown>removeNoteFromShape", "shapeInConfig>removeNoteFromShape", "removeNoteFromShape>s.notes"],
+              set: { "s.notes": "[E4]" },
+              text: "<p>This time <code>addNoteToShape()</code> finds nothing: <code>keys.indexOf(\"Backspace\")</code> is −1. <code>removeNoteFromShape()</code> matches it and calls <code>pop()</code>, which removes the <strong>last</strong> note.</p>",
+              code: ["removeNoteFromShape"],
+            },
+          ],
+        },
+        {
+          id: "release",
+          title: "Release: pick instrument",
+          initial: { ...S0, ...A, shapeInFocus: "A", shapeInConfig: "A", shapeClickTime: "15000", "s.position": "(720, 180)" },
+          steps: [
+            {
+              title: "Let go of the pointer",
+              nodes: ["ev-pup", "pointerUp", "shapeInConfig", "s.position"],
+              edges: ["ev-pup>pointerUp", "shapeInConfig>pointerUp", "s.position>pointerUp"],
+              text: "<p><code>pointerUp()</code> compares A's center with the middle of the window to find its quarter of the screen.</p><p>Say the window is 1000 × 600 and A is at (720, 180). 720 ≥ 500 means the right half, and 180 &lt; 300 means the top half. So A is <strong>top-right</strong>.</p>",
+              code: ["pointerUp"],
+              hl: ["shapeInConfig.position.x >= window.innerWidth / 2 &&", "shapeInConfig.position.y < window.innerHeight / 2"],
+            },
+            {
+              title: "Choose the instrument and colour",
+              nodes: ["pointerUp", "instruments", "s.instrument", "s.hue"],
+              edges: ["instruments>pointerUp", "pointerUp>s.instrument", "pointerUp>s.hue"],
+              set: { "s.instrument": "membrane", "s.hue": "163" },
+              text: "<p>Top-right means the membrane synth and a hue between 150 and 175 (60 + 90 × 1 + a random bit).</p><p>The four quarters: top-left <strong>fm</strong>, top-right <strong>membrane</strong>, bottom-left <strong>plucky</strong>, bottom-right <strong>duo</strong>.</p>",
+              code: ["pointerUp"],
+              hl: ["shapeInConfig.instrument = instruments.membrane;", "shapeInConfig.hue = 60 + 90 * 1 + Math.random() * 25; // random cyan"],
+            },
+            {
+              title: "End configuration",
+              nodes: ["pointerUp", "shapeInConfig"],
+              edges: ["pointerUp>shapeInConfig"],
+              set: { shapeInConfig: "null" },
+              text: "<p>Clearing <code>shapeInConfig</code> means <code>pointerMove()</code> and the note keys ignore A until you press it again.</p>",
+              code: ["pointerUp"],
+              hl: ["shapeInConfig = null;"],
+            },
+            {
+              title: "The next frame shows the new colour",
+              nodes: ["raf", "use", "s.hue", "s.enabled", "screen"],
+              edges: ["raf>use", "s.hue>use", "s.enabled>use", "use>screen"],
+              text: "<p><code>use()</code> reads the new <code>hue</code>. The new instrument is heard only when the sound loop plays A, and that happens only if A is enabled.</p>",
+              code: ["use"],
+              hl: ["s.setColour(s.hue, disabledSaturation, disabledLightness);"],
+            },
+          ],
+        },
+        {
+          id: "toggle",
+          title: "Double-press: play",
+          initial: { ...S0, ...A, shapeInFocus: "A", "s.notes": "[E4, G4]", "s.instrument": "membrane", "s.hue": "163" },
+          steps: [
+            {
+              title: "First press",
+              nodes: ["ev-pdown", "pointerDown", "shapeInFocus", "shapeClickTime", "shapeInConfig"],
+              edges: ["ev-pdown>pointerDown", "shapeInFocus>pointerDown", "shapeClickTime>pointerDown", "pointerDown>shapeInConfig", "pointerDown>shapeClickTime"],
+              set: { shapeInConfig: "A", shapeClickTime: "15000" },
+              text: "<p>Now − 0 is far more than 200 ms, so there's no toggle. A is configured and the time of this press is saved: say 15000 ms.</p>",
+              code: ["pointerDown"],
+              hl: ["if (Date.now() - shapeClickTime < 200) {", "shapeClickTime = Date.now();"],
+            },
+            {
+              title: "Quick release",
+              nodes: ["ev-pup", "pointerUp", "shapeInConfig"],
+              edges: ["ev-pup>pointerUp", "pointerUp>shapeInConfig"],
+              set: { shapeInConfig: "null" },
+              text: "<p><code>pointerUp()</code> runs as usual: it picks the instrument and ends configuration.</p>",
+              code: ["pointerUp"],
+              hl: ["shapeInConfig = null;"],
+            },
+            {
+              title: "Second press, 150 ms later",
+              nodes: ["ev-pdown", "pointerDown", "shapeClickTime", "toggleShapeEnable", "s.enabled", "shapeInConfig"],
+              edges: ["ev-pdown>pointerDown", "shapeClickTime>pointerDown", "pointerDown>toggleShapeEnable", "toggleShapeEnable>s.enabled", "pointerDown>shapeInConfig", "pointerDown>shapeClickTime"],
+              set: { "s.enabled": "true", shapeInConfig: "A", shapeClickTime: "15150" },
+              text: "<p>15150 − 15000 = 150 ms, which is less than 200. So <code>toggleShapeEnable(A)</code> flips <code>enabled</code> from <code>false</code> to <code>true</code>.</p>",
+              code: ["pointerDown", "toggleShapeEnable"],
+              hl: ["toggleShapeEnable(shapeInFocus);", "s.enabled = !s.enabled;"],
+            },
+            {
+              title: "The loops notice",
+              nodes: ["use", "useSound", "s.enabled", "screen", "speakers"],
+              edges: ["s.enabled>use", "s.enabled>useSound", "use>screen", "useSound>speakers"],
+              text: "<p>Nothing in <code>pointerDown()</code> makes sound or changes colour. It only flipped one <code>true</code>/<code>false</code> value.</p><p>On the next frame, <code>use()</code> draws A brightly. Within a second, <code>useSound()</code> starts playing A's notes. See <em>The sound loop</em>.</p>",
+              code: ["use"],
+              hl: ["s.setColour(s.hue, 100, 50); // Enabled shapes use a bright colour."],
+            },
+          ],
+        },
+        {
+          id: "sound",
+          title: "The sound loop",
+          initial: { ...S0, ...A, "s.notes": "[E4, G4]", "s.enabled": "true", "s.size": "160", "s.instrument": "membrane", "s.hue": "163" },
+          steps: [
+            {
+              title: "The 1-second timer fires",
+              nodes: ["timer", "useSound"],
+              edges: ["timer>useSound"],
+              text: "<p>No event is needed. The timer that <code>useSound()</code> set last time calls it again.</p>",
+              code: ["useSound"],
+              hl: ["setTimeout(useSound, 1000);"],
+            },
+            {
+              title: "Read each shape",
+              nodes: ["useSound", "shapes", "s.enabled", "s.notes", "s.size", "s.instrument"],
+              edges: ["shapes>useSound", "s.enabled>useSound", "s.notes>useSound", "s.size>useSound", "s.instrument>useSound"],
+              text: "<p>It goes through <code>shapes</code> and skips any shape that isn't enabled. For A, the volume is <code>min(160 / 200, 1)</code> = <strong>0.8</strong>. Bigger shapes are louder.</p>",
+              code: ["useSound"],
+              hl: ["if (s.enabled) {", "let volume = Math.min(s.size / 200, 1);"],
+            },
+            {
+              title: "Schedule the notes",
+              nodes: ["useSound", "speakers"],
+              edges: ["useSound>speakers"],
+              text: "<p>E4 is scheduled for now, and G4 for 0.25 s later (<code>t + i * 0.25</code>). Both play on A's own instrument, the membrane synth.</p><p>Try this: a shape with more than 4 notes needs more than 1 s, so its notes will overlap with the next round.</p>",
+              code: ["useSound"],
+              hl: ['s.instrument.triggerAttackRelease(note, "8n", t + i * 0.25, volume);'],
+            },
+            {
+              title: "Set the next timer",
+              nodes: ["useSound", "timer"],
+              edges: ["timer>useSound"],
+              text: "<p>The last line sets the timer again, so the loop never stops. To change how often shapes repeat, change the <code>1000</code>.</p>",
+              code: ["useSound"],
+              hl: ["setTimeout(useSound, 1000);"],
+            },
+          ],
+        },
+      ];
+
+      // ---------- Rendering ----------
+      const SVGNS = "http://www.w3.org/2000/svg";
+      const svg = document.getElementById("diagram");
+      const N = {};
+      const nodeEls = {};
+      const valueEls = {};
+
+      function el(tag, attrs = {}, parent) {
+        const e = document.createElementNS(SVGNS, tag);
+        for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+        if (parent) parent.appendChild(e);
+        return e;
+      }
+
+      for (const n of NODES) {
+        const c = COLS[n.col];
+        n.h = n.h || 40;
+        n.x = c.x + (n.indent || 0);
+        n.w = c.w - (n.indent || 0);
+        N[n.id] = n;
+      }
+
+      // Markers, one per arrow kind
+      const defs = document.getElementById("defs");
+      for (const k of Object.keys(KIND_LABEL)) {
+        const m = el("marker", { id: "m-" + k, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse" }, defs);
+        el("path", { d: "M0,0 L10,5 L0,10 z", class: "m-" + k }, m);
+      }
+
+      // Column titles and state groups
+      const backdrop = document.getElementById("backdrop");
+      COLS.forEach((c) => {
+        const t = el("text", { x: c.x, y: 22, class: "col-title" }, backdrop);
+        t.textContent = c.title;
+      });
+      for (const g of GROUPS) {
+        el("rect", { x: COLS[3].x - 8, y: g.y, width: COLS[3].w + 16, height: g.h, rx: 10, class: "group-rect" }, backdrop);
+        if (g.title) {
+          const t = el("text", { x: COLS[3].x, y: g.y + 16, class: "group-title" }, backdrop);
+          t.textContent = g.title;
+        }
+      }
+
+      // Nodes
+      const nodesG = document.getElementById("nodes");
+      for (const n of NODES) {
+        const g = el("g", { class: `node kind-${n.kind}`, "data-id": n.id, tabindex: 0, role: "button", "aria-label": n.label }, nodesG);
+        const r = n.kind === "event" || n.kind === "timer" ? n.h / 2 : n.kind === "output" ? 12 : 7;
+        el("rect", { x: n.x, y: n.y, width: n.w, height: n.h, rx: r }, g);
+        const rowLike = ["state", "setting", "shapehead"].includes(n.kind);
+        const t = el("text", { x: rowLike ? n.x + 10 : n.x + n.w / 2, y: n.y + n.h / 2 + 4.5, "text-anchor": rowLike ? "start" : "middle" }, g);
+        t.textContent = n.label;
+        if (n.indent && n.kind === "helper") t.classList.add("small");
+        if (rowLike) {
+          const v = el("text", { x: n.x + n.w - 10, y: n.y + n.h / 2 + 4, "text-anchor": "end", class: "value" }, g);
+          v.textContent = n.value || "";
+          valueEls[n.id] = v;
+        }
+        nodeEls[n.id] = g;
+        g.addEventListener("click", () => explore(n.id));
+        g.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            explore(n.id);
+          }
+        });
+      }
+
+      // Edge geometry
+      function edgePath(from, to, route) {
+        const a = N[from];
+        const b = N[to];
+        if (route === "under") {
+          const x1 = a.x + a.w;
+          const y1 = a.y + a.h / 2;
+          const bx = b.x + b.w / 2;
+          const by = b.y + b.h;
+          const r = 10;
+          const lx = x1 + 14;
+          const low = 605;
+          return { d: `M${x1},${y1} H${lx - r} Q${lx},${y1} ${lx},${y1 + r} V${low - r} Q${lx},${low} ${lx + r},${low} H${bx - r} Q${bx},${low} ${bx},${low - r} V${by}`, end: true };
+        }
+        if (a.col === b.col) {
+          const [up, lo] = a.y < b.y ? [a, b] : [b, a];
+          if (lo.x > up.x + 4) {
+            const x = up.x + 8;
+            return { d: `M${x},${up.y + up.h} V${lo.y + lo.h / 2} H${lo.x}`, end: lo === b };
+          }
+          const x = up.x + up.w / 2;
+          return { d: `M${x},${up.y + up.h} V${lo.y}`, end: lo === b };
+        }
+        const [L, R] = a.col < b.col ? [a, b] : [b, a];
+        const x1 = L.x + L.w;
+        const y1 = L.y + L.h / 2;
+        const x2 = R.x;
+        const y2 = R.y + R.h / 2;
+        const dx = Math.max(30, (x2 - x1) / 2);
+        return { d: `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`, end: R === b };
+      }
+
+      const EDGE_BY_KEY = {};
+      const baseG = document.getElementById("edges-base");
+      const activeG = document.getElementById("edges-active");
+      for (const [from, to, kind, route] of EDGES) {
+        const geo = edgePath(from, to, route);
+        const key = `${from}>${to}`;
+        EDGE_BY_KEY[key] = { from, to, kind, geo };
+        el("path", { d: geo.d, class: `edge k-${kind}`, [geo.end ? "marker-end" : "marker-start"]: `url(#m-${kind})` }, baseG);
+      }
+
+      function drawActive(keys) {
+        activeG.replaceChildren();
+        const list = keys.map((k) => EDGE_BY_KEY[k]).filter(Boolean);
+        for (const e of list) el("path", { d: e.geo.d, class: "halo" }, activeG);
+        for (const e of list) el("path", { d: e.geo.d, class: `edge k-${e.kind}`, [e.geo.end ? "marker-end" : "marker-start"]: `url(#m-${e.kind})` }, activeG);
+      }
+
+      // Legend
+      const legend = document.getElementById("legend");
+      for (const [k, label] of Object.entries(KIND_LABEL)) {
+        const s = document.createElement("span");
+        s.innerHTML = `<svg viewBox="0 0 34 10"><line x1="1" y1="5" x2="27" y2="5" class="edge k-${k}" style="opacity:1;stroke-width:2"/><path d="M26,1 L33,5 L26,9 z" class="m-${k}"/></svg>${label}`;
+        legend.appendChild(s);
+      }
+      {
+        const s = document.createElement("span");
+        s.innerHTML = `<svg viewBox="0 0 34 10"><rect x="1" y="1" width="32" height="8" rx="2" style="fill:var(--changed)"/></svg>value just changed`;
+        legend.appendChild(s);
+      }
+
+      // ---------- Code panel ----------
+      function escapeHtml(s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function renderCode(name, hl = []) {
+        const lines = CODE[name].split("\n").map((line) => {
+          const isHl = hl.some((h) => line.includes(h));
+          let html = escapeHtml(line);
+          html = html.replace(/(\/\/.*)$/, '<span class="c">$1</span>');
+          return isHl ? `<span class="hl">${html}</span>` : html;
+        });
+        return lines.join("\n");
+      }
+      function showCode(names, hl) {
+        const box = document.getElementById("code");
+        box.innerHTML = names
+          .map((n) => {
+            const title = n === "state" ? "script.js — State" : n === "settings" ? "script.js — Settings" : `script.js — ${n}()`;
+            return `<h3>${title}</h3><pre><code>${renderCode(n, hl)}</code></pre>`;
+          })
+          .join("");
+      }
+
+      // ---------- Highlighting ----------
+      function highlight(active = [], neighbours = [], edges = [], changed = []) {
+        const any = active.length > 0;
+        svg.classList.toggle("has-focus", any);
+        for (const [id, g] of Object.entries(nodeEls)) {
+          g.classList.toggle("is-active", active.includes(id));
+          g.classList.toggle("is-neighbour", neighbours.includes(id));
+          g.classList.toggle("is-changed", changed.includes(id));
+        }
+        drawActive(edges);
+      }
+      function setValues(values) {
+        for (const [id, v] of Object.entries(valueEls)) {
+          const n = N[id];
+          if (n.kind === "setting") continue;
+          v.textContent = values ? values[id] ?? "" : "";
+        }
+      }
+
+      // ---------- Walkthrough mode ----------
+      let current = null;
+      let stepIndex = 0;
+
+      function stateAt(sc, idx) {
+        const s = { ...sc.initial };
+        for (let i = 0; i <= idx; i++) Object.assign(s, sc.steps[i].set || {});
+        return s;
+      }
+
+      function showStep() {
+        const sc = current;
+        const step = sc.steps[stepIndex];
+        const values = stateAt(sc, stepIndex);
+        const changed = Object.keys(step.set || {});
+        setValues(values);
+        highlight(step.nodes, [], step.edges || [], changed);
+        document.getElementById("step-title").textContent = step.title;
+        document.getElementById("step-counter").textContent = `${sc.title} · step ${stepIndex + 1} of ${sc.steps.length}`;
+        document.getElementById("step-body").innerHTML = step.text;
+        document.getElementById("step-changes").innerHTML = changed.map((k) => `<span>${k.replace(/^s\./, "A.")} = ${escapeHtml(values[k])}</span>`).join("");
+        document.getElementById("step-nav").hidden = false;
+        document.getElementById("prev").disabled = stepIndex === 0;
+        const nextIdx = SCENARIOS.indexOf(sc) + 1;
+        const next = document.getElementById("next");
+        if (stepIndex < sc.steps.length - 1) {
+          next.textContent = "Next →";
+          next.disabled = false;
+        } else if (nextIdx < SCENARIOS.length) {
+          next.textContent = `Next: ${SCENARIOS[nextIdx].title} →`;
+          next.disabled = false;
+        } else {
+          next.textContent = "Done";
+          next.disabled = true;
+        }
+        document.getElementById("dots").innerHTML = sc.steps.map((_, i) => `<i class="${i === stepIndex ? "on" : ""}"></i>`).join("");
+        showCode(step.code || [], step.hl || []);
+        updateHash();
+      }
+
+      function startScenario(id, step = 0) {
+        current = SCENARIOS.find((s) => s.id === id) || SCENARIOS[0];
+        stepIndex = Math.min(Math.max(step, 0), current.steps.length - 1);
+        markChip(current.id);
+        showStep();
+      }
+
+      function go(delta) {
+        if (!current) return;
+        const i = stepIndex + delta;
+        if (i < 0) return;
+        if (i >= current.steps.length) {
+          const nextIdx = SCENARIOS.indexOf(current) + 1;
+          if (nextIdx < SCENARIOS.length) startScenario(SCENARIOS[nextIdx].id);
+          return;
+        }
+        stepIndex = i;
+        showStep();
+      }
+
+      function updateHash() {
+        if (current) history.replaceState(null, "", `#${current.id}${stepIndex ? "-" + (stepIndex + 1) : ""}`);
+      }
+
+      // ---------- Explore mode ----------
+      function explore(id) {
+        current = null;
+        markChip("explore");
+        history.replaceState(null, "", "#explore");
+        const n = N[id];
+        const groups = { triggers: [], "triggered by": [], calls: [], "called by": [], reads: [], "read by": [], writes: [], "written by": [], "outputs to": [], "output from": [] };
+        const neighbours = [];
+        const edges = [];
+        for (const [key, e] of Object.entries(EDGE_BY_KEY)) {
+          if (e.from !== id && e.to !== id) continue;
+          edges.push(key);
+          const other = e.from === id ? e.to : e.from;
+          neighbours.push(other);
+          const outward = e.from === id;
+          const label = {
+            triggers: outward ? "triggers" : "triggered by",
+            calls: outward ? "calls" : "called by",
+            // "reads" edges run state → reader
+            reads: outward ? "read by" : "reads",
+            writes: outward ? "writes" : "written by",
+            out: outward ? "outputs to" : "output from",
+          }[e.kind];
+          groups[label].push(other);
+        }
+        setValues(null);
+        highlight([id], neighbours, edges, []);
+        const [desc, codeName] = INFO[id] || ["", null];
+        document.getElementById("step-title").textContent = n.label;
+        document.getElementById("step-counter").textContent = "Explore · click any box in the diagram";
+        let html = `<p>${desc}</p><dl class="conn">`;
+        for (const [label, ids] of Object.entries(groups)) {
+          if (!ids.length) continue;
+          html += `<dt>${label}</dt><dd>${ids.map((o) => `<button type="button" data-goto="${o}">${N[o].label}</button>`).join("")}</dd>`;
+        }
+        html += "</dl>";
+        document.getElementById("step-body").innerHTML = html;
+        document.getElementById("step-changes").innerHTML = "";
+        document.getElementById("step-nav").hidden = true;
+        const fn = n.kind === "handler" || n.kind === "helper" || n.kind === "loop" || n.id === "setup" ? id : codeName;
+        showCode(fn ? [fn] : []);
+      }
+
+      document.getElementById("step-body").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-goto]");
+        if (b) explore(b.dataset.goto);
+      });
+
+      // ---------- Picker ----------
+      const picker = document.getElementById("picker");
+      const chips = {};
+      for (const sc of SCENARIOS) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "chip";
+        b.textContent = sc.title;
+        b.addEventListener("click", () => startScenario(sc.id));
+        picker.appendChild(b);
+        chips[sc.id] = b;
+      }
+      {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "chip explore";
+        b.textContent = "Explore freely";
+        b.addEventListener("click", () => explore("setup"));
+        picker.appendChild(b);
+        chips.explore = b;
+      }
+      function markChip(id) {
+        for (const [k, b] of Object.entries(chips)) b.setAttribute("aria-pressed", String(k === id));
+      }
+
+      document.getElementById("prev").addEventListener("click", () => go(-1));
+      document.getElementById("next").addEventListener("click", () => go(1));
+      window.addEventListener("keydown", (e) => {
+        if (e.target.closest && e.target.closest("button, [role=button]") && (e.key === "Enter" || e.key === " ")) return;
+        if (e.key === "ArrowRight") go(1);
+        if (e.key === "ArrowLeft") go(-1);
+      });
+
+      // Deep links: #explore, #notes, or #notes-3 for step 3 of "notes"
+      const [, hashId, hashStep] = location.hash.match(/^#([a-z]+)(?:-(\d+))?/) || [];
+      if (hashId === "explore") explore("setup");
+      else startScenario(hashId || "start", hashStep ? Number(hashStep) - 1 : 0);
+    </script>
+  </body>
+</html>
