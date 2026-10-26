@@ -45,6 +45,7 @@ const disabledLightness = 25; // lightness for disabled shapes
 let shapes = [];
 let shapeInFocus = null;
 let shapeInConfig = null;
+let shapeClickTime = 0;
 
 // ---------- Sound ----------
 // Make the instruments and plug them into the speakers.
@@ -58,6 +59,22 @@ function update() {
 
 // ---------- Use ----------
 // Use the state to make sound and move shapes. This is called every 100ms.
+function useSound() {
+  console.log(shapes);
+  for (let s of shapes) {
+    if (s.enabled) {
+      let t = Tone.now(); // get the current time in seconds
+      let i = 0; // index of the shape in the shapes array
+      // play all the notes in the shape's notes array
+      for (let note of s.notes) {
+        s.instrument.triggerAttackRelease(note, "8n", t + i * 0.25); // play the notes for 1/8th of a second
+        i++;
+      }
+    }
+  }
+  setTimeout(useSound, 1000); // call update() again in 100 milliseconds
+}
+
 function use() {
   for (let s of shapes) {
     if (s.enabled) {
@@ -115,9 +132,17 @@ function newShape(event) {
   shapeInFocus = s;
 }
 
+function toggleShapeEnable(s) {
+  s.enabled = !s.enabled;
+}
+
 function pointerDown(event) {
   if (shapeInFocus) {
+    if (Date.now() - shapeClickTime < 200) {
+      toggleShapeEnable(shapeInFocus);
+    }
     shapeInConfig = shapeInFocus;
+    shapeClickTime = Date.now();
   } else {
     newShape(event);
   }
@@ -135,6 +160,8 @@ function keyDown(event) {
     if (index >= 0 && index < notes.length) {
       let note = notes[index];
       shapeInConfig.notes.push(note);
+
+      synth.triggerAttackRelease(note, "8n"); // play the note for 1/8th of a second
     }
   }
 }
@@ -144,6 +171,7 @@ function keyDown(event) {
 function setup() {
   update(); // start the update loop
   use(); // start the use loop
+  useSound(); // start the useSound loop
 
   // Put your event listener code here
   window.addEventListener("pointerdown", pointerDown);
