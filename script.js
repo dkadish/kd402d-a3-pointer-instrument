@@ -60,7 +60,6 @@ function update() {
 // ---------- Use ----------
 // Use the state to make sound and move shapes. This is called every 100ms.
 function useSound() {
-  console.log(shapes);
   for (let s of shapes) {
     if (s.enabled) {
       let t = Tone.now(); // get the current time in seconds
@@ -83,6 +82,9 @@ function use() {
     } else {
       s.setColour(s.hue, disabledSaturation, disabledLightness); // dim colour when disabled
     }
+
+    // Use the shape's position to move it on the screen. The shape's position is updated in pointerMove().
+    s.setPositionPixels(s.position.x, s.position.y); // move the shape to its position
   }
 
   window.requestAnimationFrame(use); // call use() again on the next frame
@@ -114,10 +116,10 @@ function newShape(event) {
 
   let s = createShape();
   s.setSize(initialSize);
-  s.setPositionPixels(
-    event.clientX - initialSize / 2,
-    event.clientY - initialSize / 2,
-  );
+  s.position = {
+    x: event.clientX - initialSize / 2,
+    y: event.clientY - initialSize / 2,
+  };
   s.setColour(Math.random() * 360); // random colour
 
   // Add properties to the shape for our instrument
@@ -150,7 +152,39 @@ function pointerDown(event) {
 
 function pointerUp(event) {
   if (shapeInConfig) {
+    if (
+      shapeInConfig.position.x < window.innerWidth / 2 &&
+      shapeInConfig.position.y < window.innerHeight / 2
+    ) {
+      shapeInConfig.instrument = instruments.fm;
+    } else if (
+      shapeInConfig.position.x >= window.innerWidth / 2 &&
+      shapeInConfig.position.y < window.innerHeight / 2
+    ) {
+      shapeInConfig.instrument = instruments.membrane;
+    } else if (
+      shapeInConfig.position.x < window.innerWidth / 2 &&
+      shapeInConfig.position.y >= window.innerHeight / 2
+    ) {
+      shapeInConfig.instrument = instruments.plucky;
+    } else {
+      shapeInConfig.instrument = instruments.duo;
+    }
+
     shapeInConfig = null;
+  }
+}
+
+function pointerMove(event) {
+  if (shapeInConfig) {
+    shapeInConfig.position = {
+      x: event.clientX - shapeInConfig.width / 2,
+      y: event.clientY - shapeInConfig.height / 2,
+    };
+
+    console.log(
+      `Pointer moved to ${shapeInConfig.position.x}, ${shapeInConfig.position.y}.`,
+    );
   }
 }
 
@@ -176,6 +210,7 @@ function setup() {
   // Put your event listener code here
   window.addEventListener("pointerdown", pointerDown);
   window.addEventListener("pointerup", pointerUp);
+  window.addEventListener("pointermove", pointerMove);
 
   window.addEventListener("keydown", keyDown);
 }
