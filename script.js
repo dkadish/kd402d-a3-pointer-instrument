@@ -83,8 +83,14 @@ function use() {
       s.setColour(s.hue, disabledSaturation, disabledLightness); // dim colour when disabled
     }
 
+    // Use the shape's size to set its size on the screen. The shape's size is updated in pointerMove().
+    s.setSize(s.size); // set the shape's size
+
     // Use the shape's position to move it on the screen. The shape's position is updated in pointerMove().
-    s.setPositionPixels(s.position.x, s.position.y); // move the shape to its position
+    s.setPositionPixels(
+      s.position.x - (s.size - initialSize) / 2,
+      s.position.y - (s.size - initialSize) / 2,
+    ); // move the shape to its position
   }
 
   window.requestAnimationFrame(use); // call use() again on the next frame
@@ -115,7 +121,8 @@ function newShape(event) {
   Tone.start(); // browsers only allow sound after the player has pressed something
 
   let s = createShape();
-  s.setSize(initialSize);
+  s.size = initialSize;
+  s.setSize(s.size);
   s.position = {
     x: event.clientX - initialSize / 2,
     y: event.clientY - initialSize / 2,
@@ -177,14 +184,22 @@ function pointerUp(event) {
 
 function pointerMove(event) {
   if (shapeInConfig) {
-    shapeInConfig.position = {
-      x: event.clientX - shapeInConfig.width / 2,
-      y: event.clientY - shapeInConfig.height / 2,
-    };
-
-    console.log(
-      `Pointer moved to ${shapeInConfig.position.x}, ${shapeInConfig.position.y}.`,
-    );
+    if (event.shiftKey) {
+      shapeInConfig.size = Math.max(
+        10,
+        Math.abs(
+          event.clientX - shapeInConfig.position.x + shapeInConfig.size / 2,
+        ),
+        Math.abs(
+          event.clientY - shapeInConfig.position.y + shapeInConfig.size / 2,
+        ),
+      );
+    } else {
+      shapeInConfig.position = {
+        x: event.clientX - shapeInConfig.size / 2,
+        y: event.clientY - shapeInConfig.size / 2,
+      };
+    }
   }
 }
 
@@ -197,6 +212,10 @@ function keyDown(event) {
 
       synth.triggerAttackRelease(note, "8n"); // play the note for 1/8th of a second
     }
+  }
+
+  if (event.key === "Backspace" && shapeInConfig != null) {
+    shapeInConfig.notes.pop();
   }
 }
 
